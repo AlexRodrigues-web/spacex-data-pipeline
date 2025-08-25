@@ -31,25 +31,31 @@ spacex-data-pipeline/
 ├─ docker-compose.yml       # optional if running standalone
 ├─ .env.sample              # optional
 └─ README.md
+```
+> If you reuse infra from another repo, keep only the dbt models here and point to the same database.
 
-If you reuse infra from another repo, keep only the dbt models here and point to the same database.
+---
 
-Environment
+## Environment
+Create `.env` from `.env.sample` (do not commit real secrets):
 
-Create .env from .env.sample (do not commit real secrets):
-
+```env
 DATABASE_URL=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
 DBT_HOST=postgres
 DBT_USER=airflow
 DBT_PASSWORD=airflow
 DBT_DBNAME=airflow
 DBT_SCHEMA=analytics
+```
 
-How to Run
-1) Load raw data (one-shot without Airflow)
+---
 
-Run in a single line on Windows (don’t use \ for line breaks):
+## How to Run
 
+### 1) Load raw data (one-shot, without Airflow)
+Run in a single line on Windows (don’t use `\` for line breaks):
+
+```powershell
 docker compose exec streamlit bash -lc "python - << 'PY'
 import os, requests, pandas as pd
 from datetime import datetime
@@ -74,57 +80,66 @@ with engine.begin() as conn:
     df.to_sql('spacex_launches', conn, schema='raw', if_exists='replace', index=False)
 print('Inserted rows:', len(df))
 PY"
+```
 
 Check:
-
+```powershell
 docker compose exec postgres psql -U airflow -d airflow -c "select count(*) from raw.spacex_launches;"
+```
 
-2) Run dbt models
-
+### 2) Run dbt models
+```powershell
 docker compose run --rm dbt run --full-refresh --select stg_spacex_launches+ --profiles-dir /usr/app --project-dir /usr/app
+```
 
-3) (Optional) Streamlit
+### 3) (Optional) Streamlit
+If you added `streamlit/app_spacex.py`, open http://localhost:8501
 
-If you added streamlit/app_spacex.py, open http://localhost:8501
+---
 
-Quick Checks
-
+## Quick Checks
+```powershell
 docker compose exec postgres psql -U airflow -d airflow -c "select * from analytics.fct_spacex_launches_by_year order by year desc limit 10;"
 docker compose exec postgres psql -U airflow -d airflow -c "\dt analytics.*"
+```
 
-Data Schema
-raw.spacex_launches
-column	type	example
-launch_id	text	5eb87d46ffd86e000604b388
-name	text	Starlink-15 (v1.0)
-date_utc	text (ISO)	2020-10-24T15:31:00.000Z
-success	boolean	true / false / null
-rocket	text	5e9d0d95eda69973a809d1ec
-details	text	…
-load_ts	timestamptz	2025-08-25 19:35:00+00
-analytics.stg_spacex_launches (VIEW)
+---
 
-Casts date_utc → timestamp/date
+## Data Schema
 
-Derives year
+### `raw.spacex_launches`
+| column   | type        | example                          |
+|----------|-------------|----------------------------------|
+| launch_id| text        | 5eb87d46ffd86e000604b388         |
+| name     | text        | Starlink-15 (v1.0)               |
+| date_utc | text (ISO)  | 2020-10-24T15:31:00.000Z         |
+| success  | boolean     | true / false / null              |
+| rocket   | text        | 5e9d0d95eda69973a809d1ec         |
+| details  | text        | …                                |
+| load_ts  | timestamptz | 2025-08-25 19:35:00+00           |
 
-Normalizes success if needed
+### `analytics.stg_spacex_launches` (VIEW)
+- Casts `date_utc` → `timestamp` / `date`
+- Derives `year`
+- Normalizes `success` if needed
 
-analytics.fct_spacex_launches_by_year (TABLE)
-column	type	description
-year	int	launch year
-launches	int	total launches per year
-successes	int	success count
-failures	int	failure count
-success_rate_pct	numeric	successes / launches * 100
-Troubleshooting
+### `analytics.fct_spacex_launches_by_year` (TABLE)
+| column           | type     | description                          |
+|------------------|----------|--------------------------------------|
+| year             | int      | launch year                          |
+| launches         | int      | total launches per year              |
+| successes        | int      | success count                        |
+| failures         | int      | failure count                        |
+| success_rate_pct | numeric  | successes / launches * 100           |
 
-relation "raw.spacex_launches" does not exist → ingest raw first.
+---
 
-Windows line continuation → use a single line (don’t use \).
+## Troubleshooting
+- `relation "raw.spacex_launches" does not exist` → ingest raw first.
+- Windows line continuation → use a single line (don’t use `\`).
+- Odd success rate → very old launches may have `success = null`; adjust model logic if desired.
 
-Odd success rate → very old launches may have success = null; adjust model logic if desired.
+---
 
-License
-
-MIT — see LICENSE.
+## License
+MIT — see `LICENSE`.
