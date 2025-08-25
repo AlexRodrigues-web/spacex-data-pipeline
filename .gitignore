@@ -1,26 +1,23 @@
-﻿# Python
+﻿# python
 __pycache__/
 *.pyc
-.venv/
-.env
 
 # dbt
 dbt/target/
-dbt/dbt_packages/
-target/
+dbt/logs/
+dbt/.user.yml
 
-# Airflow (se usar)
+# airflow
 airflow/logs/
-airflow/.env
-airflow/*.db
+airflow/*.pid
 
-# Streamlit
+# streamlit
 streamlit/logs/
+.streamlit/
 
-# OS/IDE
+# docker env
+.env
+*.env
+
+# misc
 .DS_Store
-.vscode/
-.idea/
-
-# Docker
-*.pid

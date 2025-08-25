@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: dps_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      TZ: ${TZ:-Europe/Lisbon}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  airflow:
+    image: apache/airflow:2.9.1
+    container_name: dps_airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Europe/Lisbon}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__WEB_SERVER_HOST: 0.0.0.0
+      AIRFLOW__WEBSERVER__WEB_SERVER_PORT: "8080"
+      _PIP_ADDITIONAL_REQUIREMENTS: "psycopg2-binary==2.9.9 requests==2.31.0 beautifulsoup4==4.12.3 pandas==2.1.4"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      TZ: ${TZ:-Europe/Lisbon}
+    ports:
+      - "8080:8080"
+    command: >
+      bash -lc "
+      set -e &&
+      echo '[airflow] installing extra requirements (with error logging)' &&
+      pip install -r /requirements.txt || echo '[airflow] WARN: requirements install failed or empty' &&
+      echo '[airflow] initializing metadata DB' &&
+      airflow db init &&
+      echo '[airflow] creating admin user (idempotent)' &&
+      airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true &&
+      echo '[airflow] starting webserver + scheduler' &&
+      airflow webserver & sleep 5 && airflow scheduler
+      "
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/requirements.txt:/requirements.txt
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-postgres:1.7.13
+    container_name: dps_dbt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /usr/app
+    environment:
+      DBT_USER: ${POSTGRES_USER:-airflow}
+      DBT_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      DBT_HOST: postgres
+      DBT_DBNAME: ${POSTGRES_DB:-airflow}
+      DBT_SCHEMA: analytics
+      TZ: ${TZ:-Europe/Lisbon}
+    command: ["bash","-lc","echo '[dbt] container up (run dbt manually via: docker compose exec dbt bash)' && sleep infinity"]
+    volumes:
+      - ./dbt:/usr/app
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  streamlit:
+    image: python:3.11-slim
+    container_name: dps_streamlit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+      TZ: ${TZ:-Europe/Lisbon}
+    volumes:
+      - ./streamlit:/app
+    ports:
+      - "8501:8501"
+    command: >
+      bash -lc "
+      set -e &&
+      mkdir -p logs &&
+      pip install --no-cache-dir streamlit pandas sqlalchemy psycopg2-binary &&
+      echo '[streamlit] starting app (logging to logs/streamlit.log)' &&
+      streamlit run app.py --server.headless=true --server.port=8501 --server.address=0.0.0.0
+      "
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  pgdata:
